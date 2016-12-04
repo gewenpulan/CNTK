@@ -7,9 +7,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.MSR.CNTK.Extensibility.Managed.CSEvalClient;
+using CNTK;
 
 namespace CSEvalV2Example
 {
@@ -274,7 +277,7 @@ namespace CSEvalV2Example
         static void EvaluateUsingCSEvalLib()
         {
             // Load the model
-            var model = new CNTK.CSharp.Evaluation();
+            var model = new CNTK.Evaluation();
 
             model.LoadModel("z.model", DeviceDescriptor.CPUDevice());
 
@@ -338,6 +341,109 @@ namespace CSEvalV2Example
             }
         }
 
+        static void EvaluateUsingExtensions()
+        {
+            // Load the model.
+            Function myFunc = Function.LoadModel("z.model");
+
+            const string outputNodeName = "Plus2060_output";
+            const string inputNodeName = "";
+            Variable outputVar = myFunc.Outputs().Where(variable => string.Equals(variable.Name(), outputNodeName)).FirstOrDefault();
+            Variable inputVar = myFunc.Arguments().Where(variable => string.Equals(variable.Name(), inputNodeName)).FirstOrDefault();
+
+            // Set desired output variables and get required inputVariables;
+            // var inputVariables = new List<Variable>();
+            // SetEvaluationOutput(new List<string>() { outputNodeName }, inputVariables);
+
+            // Get shape data for the input variable
+            NDShape inputShape = inputVar.Shape();
+            // Todo: add property to Shape
+            uint imageWidth = inputShape.GetDimensionSize(0);
+            uint imageHeight = inputShape.GetDimensionSize(1);
+            uint imageChannels = inputShape.GetDimensionSize(2);
+            uint imageSize = inputShape.TotalSize();
+
+            // Number of sequences for this batch
+            int numOfSequences = 2;
+            // Number of samples in each sequence
+            int[] numOfSamplesInSequence = { 3, 3 };
+
+            // inputData contains mutliple sequences. Each sequence has multiple samples.
+            // Each sample has the same tensor shape.
+            // The outer List is the sequences. Its size is numOfSequences.
+            // The inner List is the inputs for one sequence. Its size is inputShape.TotalSize() * numberOfSampelsInSequence
+            var inputData = new List<List<float>>();
+            var fileList = new List<string>() { "zebra.jpg", "tiger.jpg", "deer.jpg", "pig.jpg", "building.jpg", "garden.jpg" };
+            int fileIndex = 0;
+            for (int seqIndex = 0; seqIndex < numOfSequences; seqIndex++)
+            {
+                // Create a new data buffer for the new sequence
+                var seqData = new List<float>();
+                for (int sampleIndex = 0; sampleIndex < numOfSamplesInSequence[seqIndex]; sampleIndex++)
+                {
+                    Bitmap bmp = new Bitmap(Bitmap.FromFile(fileList[fileIndex++]));
+                    var resized = bmp.Resize((int)imageWidth, (int)imageHeight, true);
+                    List<float> resizedCHW = resized.ParallelExtractCHW();
+                    // Aadd this sample to the data buffer of this sequence
+                    seqData.AddRange(resizedCHW);
+                }
+                // Add this sequence to the sequences list
+                inputData.Add(seqData);
+            }
+
+            // Create value object from data.
+            // void Create<T>(Shape shape, List<List<T>> data, DeviceDescriptor computeDevice)
+            // Todo: simplify with static method.
+            Value inputValue = new Value(new NDArrayView(DataType.Float, inputVar.Shape(), DeviceDescriptor.CPUDevice()));
+
+            // Create input map
+            var inputMap = new Dictionary<string, Value>();
+            // Todo: make CreateValue as static method
+            inputMap.Add(inputVar.Name(), inputValue.CreateValue<float>(inputVar.Shape(), inputData, DeviceDescriptor.CPUDevice()));
+
+            // Create ouput map. Using null as Value to indicate using system allocated memory.
+            var outputMap = new Dictionary<string, Value>();
+            outputMap.Add(outputVar.Name(), null);
+
+            // Evalaute
+            // Todo: test on GPUDevice()?
+            myFunc.Evaluate(inputMap, outputMap, DeviceDescriptor.CPUDevice());
+
+            // The buffer for storing output for this batch
+            var outputData = new List<List<float>>();
+            Value outputVal = outputMap[outputVar.Name()];
+            // Get output result as dense output
+            // void CopyTo(List<List<T>>
+            outputVal.CopyTo(outputData);
+
+            // Output results
+            var numOfElementsInSample = outputVar.Shape().TotalSize();
+            ulong seqNo = 0;
+            foreach (var seq in outputData)
+            {
+                ulong elementIndex = 0;
+                ulong sampleIndex = 0;
+                foreach (var data in seq)
+                {
+                    // a new sample starts.
+                    if (elementIndex++ == 0)
+                    {
+                        Console.Write("Seq=" + seqNo + ", Sample=" + sampleIndex + ":");
+                    }
+                    Console.Write(" " + data);
+                    // reach the end of a sample.
+                    if (elementIndex == numOfElementsInSample)
+                    {
+                        Console.WriteLine(".");
+                        elementIndex = 0;
+                        sampleIndex++;
+                    }
+                }
+                seqNo++;
+            }
+        }
+
+
         static void Main(string[] args)
         {
             
@@ -349,8 +455,9 @@ namespace CSEvalV2Example
             //EvaluateUsingSystemAllocatedMemory();
             //Console.WriteLine("======== Evaluate Using Value::Create ========");
             //EvaluateUsingCreateValue();
-            Console.WriteLine("======== Evaluate Using EvalV2Library ========");
-            EvaluateUsingCSEvalLib();
+            //Console.WriteLine("======== Evaluate Using EvalV2Library ========");
+            //EvaluateUsingCSEvalLib();
+            EvaluateUsingExtensions();
         }
 
         private static void OutputFunctionInfo(global::Function func)
