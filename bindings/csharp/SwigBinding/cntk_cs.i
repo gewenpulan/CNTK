@@ -84,68 +84,62 @@
 %apply double INPUT[]  { double *dataBuffer }
 
 
-%typemap(csclassmodifiers) CNTK::Value "public partial class"
+%typemap(cscode) CNTK::Value %{
 
-%pragma(csharp) moduleimports = %{
-
-using System;
-using System.Collections.Generic;
-
-public partial class Value
+public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<T>> sequences, DeviceDescriptor computeDevice)
 {
-    public static Value Create<T>(NDShape shape, List<List<T>> sequences, DeviceDescriptor computeDevice)
-    {
-        var dim = shape.TotalSize();
+    var dim = shape.TotalSize();
 
-        if (typeof(T).Equals(typeof(float)))
+    if (typeof(T).Equals(typeof(float)))
+    {
+        var inputSeqVector = new FloatVectorVector();
+        foreach (var seq in sequences)
         {
-            var inputSeqVector = new FloatVectorVector();
-            foreach (var seq in sequences)
+            if (seq.Count % dim != 0)
             {
-                if (seq.Count % dim != 0)
-                {
-                    throw new ArgumentException("the number of data in sequences does not match the input dimension");
-                }
-                var samples = new FloatVector(seq);
-                inputSeqVector.Add(samples);
+                throw new System.ArgumentException("the number of data in sequences does not match the input dimension");
             }
-            return Value.CreateDenseFloat(shape, inputSeqVector, computeDevice);
+            var samples = new FloatVector(seq);
+            inputSeqVector.Add(samples);
         }
-        else if (typeof(T).Equals(typeof(double)))
+        return Value.CreateDenseFloat(shape, inputSeqVector, computeDevice);
+    }
+    else if (typeof(T).Equals(typeof(double)))
+    {
+        var inputSeqVector = new DoubleVectorVector();
+        foreach (var seq in sequences)
         {
-            var inputSeqVector = new DoubleVectorVector();
-            foreach (var seq in sequences)
+            if (seq.Count % dim != 0)
             {
-                if (seq.Count % dim != 0)
-                {
-                    throw new ArgumentException("the number of data in sequences does not match the input dimension");
-                }
-                var samples = new DoubleVector(seq);
-                inputSeqVector.Add(samples);
+                throw new System.ArgumentException("the number of data in sequences does not match the input dimension");
             }
-            return Value.CreateDenseDouble(shape, inputSeqVector, computeDevice);
+            var samples = new DoubleVector(seq);
+            inputSeqVector.Add(samples);
         }
-        else
-        {
-            throw new ArgumentException("The data type " + typeof(T).ToString() + " is not supported. Only float or double is supported by CNTK.");
-        }
+        return Value.CreateDenseDouble(shape, inputSeqVector, computeDevice);
     }
-
-    public static Value Create<T>(NDShape shape, List<List<long>> oneHotIndex, DeviceDescriptor computeDevice)
+    else
     {
-        throw new NotImplementedException("Not implemented");
-    }
-
-    // Create Value based on sparse input
-    // Todo: could this be a extension to Value class??
-    // Todo: use Variable instead of varName. VarName as extension method
-    public static Value Create<T>(NDShape shape, List<List<T>> data, List<List<long>> indexes, List<List<long>> nnzCounts, DeviceDescriptor computeDevice)
-    {
-        throw new NotImplementedException("Not implemented");
+        throw new System.ArgumentException("The data type " + typeof(T).ToString() + " is not supported. Only float or double is supported by CNTK.");
     }
 }
 
+public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<long>> oneHotIndex, DeviceDescriptor computeDevice)
+{
+    throw new System.NotImplementedException("Not implemented");
+}
+
+// Create Value based on sparse input
+// Todo: could this be a extension to Value class??
+// Todo: use Variable instead of varName. VarName as extension method
+public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<T>> data, System.Collections.Generic.List<System.Collections.Generic.List<long>> indexes, System.Collections.Generic.List<System.Collections.Generic.List<long>> nnzCounts, DeviceDescriptor computeDevice)
+{
+    throw new System.NotImplementedException("Not implemented");
+}
+
+
 %}
+
 
 %include "CNTKLibraryInternals.h"
 %include "CNTKLibrary.h"
@@ -217,4 +211,7 @@ public partial class Value
         self->Forward(arguments, outputs, computeDevice, {});
     }
 }
+
+
+
 
