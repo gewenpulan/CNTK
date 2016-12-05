@@ -24,16 +24,16 @@ namespace CNTK
 
     DistributedLearnerPtr CreateQuantizedDataParallelDistributedLearner(
         QuantizedDistributedCommunicatorPtr communicator,
-        const std::vector<LearnerPtr>& learners,
+        LearnerPtr learner,
         size_t distributeAfterSamples,
         bool useAsyncBufferedParameterUpdate)
     {
-        return MakeSharedObject<QuantizedDataParallelDistributedLearner>(communicator, learners, distributeAfterSamples, useAsyncBufferedParameterUpdate);
+        return MakeSharedObject<QuantizedDataParallelDistributedLearner>(communicator, learner, distributeAfterSamples, useAsyncBufferedParameterUpdate);
     }
 
     DistributedLearnerPtr CreateBlockMomentumDistributedLearner(
         DistributedCommunicatorPtr communicator,
-        const std::vector<LearnerPtr>& learners,
+        LearnerPtr learner,
         size_t distributeAfterSamples,
         size_t blockSize,
         bool useNestrovMomentum,
@@ -42,7 +42,7 @@ namespace CNTK
     {
         return MakeSharedObject<BlockMomentumDistributedLearner>(
             communicator,
-            learners,
+            learner,
             distributeAfterSamples,
             blockSize,
             useNestrovMomentum,
@@ -52,7 +52,7 @@ namespace CNTK
 
     DistributedLearnerPtr CreateBlockMomentumDistributedLearner(
         DistributedCommunicatorPtr communicator,
-        const std::vector<LearnerPtr>& learners,
+        LearnerPtr learner,
         size_t distributeAfterSamples,
         size_t blockSize,
         double blockMomentumAsTimeConstant,
@@ -62,7 +62,7 @@ namespace CNTK
     {
         return MakeSharedObject<BlockMomentumDistributedLearner>(
             communicator,
-            learners,
+            learner,
             distributeAfterSamples,
             blockSize,
             useNestrovMomentum,
@@ -77,14 +77,14 @@ namespace CNTK
         LogicError("Quantized MPI Communicator is not supported for this build. The 1BitSGD build is needed, see CNTK wiki for details.");
     }
 
-    DistributedLearnerPtr CreateQuantizedDataParallelDistributedLearner(QuantizedDistributedCommunicatorPtr, const std::vector<LearnerPtr>&, size_t, bool)
+    DistributedLearnerPtr CreateQuantizedDataParallelDistributedLearner(QuantizedDistributedCommunicatorPtr, LearnerPtr, size_t, bool)
     {
         LogicError("Quantized Distributed Trainer is not supported for this build. The 1BitSGD build is needed, see CNTK wiki for details.");
     }
 
     DistributedLearnerPtr CreateBlockMomentumDistributedLearner(
         DistributedCommunicatorPtr /*communicator*/,
-        const std::vector<LearnerPtr>&,
+        LearnerPtr,
         size_t /*distributeAfterSamples*/,
         size_t /*blockSize*/,
         bool /*useNestrovMomentum*/,
@@ -96,7 +96,7 @@ namespace CNTK
 
     DistributedLearnerPtr CreateBlockMomentumDistributedLearner(
         DistributedCommunicatorPtr /*communicator*/,
-        const std::vector<LearnerPtr>&,
+        LearnerPtr,
         size_t /*distributeAfterSamples*/,
         size_t /*blockSize*/,
         double /*blockMomentumAsTimeConstant*/,
@@ -108,13 +108,13 @@ namespace CNTK
     }
 #endif
 
-    DistributedLearnerPtr CreateDataParallelDistributedLearner(DistributedCommunicatorPtr communicator, const std::vector<LearnerPtr>& learners, size_t distributedAfterSamples, bool useAsyncBufferedParameterUpdate)
+    DistributedLearnerPtr CreateDataParallelDistributedLearner(DistributedCommunicatorPtr communicator, LearnerPtr learner, size_t distributedAfterSamples, bool useAsyncBufferedParameterUpdate)
     {
-        return MakeSharedObject<DataParallelDistributedLearner>(communicator, learners, distributedAfterSamples, useAsyncBufferedParameterUpdate);
+        return MakeSharedObject<DataParallelDistributedLearner>(communicator, learner, distributedAfterSamples, useAsyncBufferedParameterUpdate);
     }
 
-    DataParallelDistributedLearner::DataParallelDistributedLearner(DistributedCommunicatorPtr communicator, const std::vector<LearnerPtr>& learners, size_t distributedAfterSamples, bool useAsyncBufferedParameterUpdate)
-        : DistributedLearnerBase(communicator, learners, distributedAfterSamples)
+    DataParallelDistributedLearner::DataParallelDistributedLearner(DistributedCommunicatorPtr communicator, LearnerPtr learner, size_t distributedAfterSamples, bool useAsyncBufferedParameterUpdate)
+        : DistributedLearnerBase(communicator, learner, distributedAfterSamples)
     {
         if (useAsyncBufferedParameterUpdate)
             LogicError("Asynchronous parameter update is not yet supported.");

@@ -16,7 +16,7 @@ namespace CNTK
     class DataParallelDistributedLearner : public DistributedLearnerBase
     {
     public:
-        DataParallelDistributedLearner(DistributedCommunicatorPtr communicator, const std::vector<LearnerPtr>& learners, size_t distributedAfterSamples, bool useAsyncBufferedParameterUpdate);
+        DataParallelDistributedLearner(DistributedCommunicatorPtr communicator, LearnerPtr learner, size_t distributedAfterSamples, bool useAsyncBufferedParameterUpdate);
 
         // Optional override that gets called per minibatch after finishing gradient computation but before updating model parameters
         bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, MinibatchInfo& trainingSampleCount, size_t& totalNumberOfSampleSeen) override;

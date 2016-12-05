@@ -27,13 +27,19 @@ using namespace std;
 
 namespace CNTK
 {
-    CompositeLearner::CompositeLearner(const std::vector<LearnerPtr>& learners) : 
-        Learner(std::vector<Parameter>(), LearningRateSchedule(0, TrainingParameterSchedule<double>::UnitType::Sample)),
-        m_learners(learners)
+    Learners::Learners(const std::vector<LearnerPtr>& learners) :
+        m_learners(learners),
+        m_isDistributed(false)
     {
+        if (learners.empty())
+            InvalidArgument("Please specify learners.");
+
         std::unordered_set<Parameter> learnerParameters;
-        for (const auto& learner : learners)
+        for (const auto& learner : m_learners)
         {
+            if (dynamic_pointer_cast<DistributedLearner>(learner) != nullptr)
+                m_isDistributed = true;
+
             const auto& currentLearnerParameters = learner->Parameters();
             for (const auto& parameter : currentLearnerParameters)
             {
@@ -42,90 +48,69 @@ namespace CNTK
                     InvalidArgument("Parameter named %S is covered by 2 different learners", parameter.Name().c_str());
             }
         }
+
+        CheckDistributedLearners();
     }
 
-    bool CompositeLearner::Update(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount)
+    void Learners::CheckDistributedLearners()
+    {
+        for (const auto& learner : m_learners)
+        {
+            if (dynamic_pointer_cast<DistributedLearner>(learner) == nullptr)
+                InvalidArgument("Distributed and local learners cannot be used side by side.");
+        }
+    }
+
+    void Learners::GetLearnerGradients(LearnerPtr learner, const std::unordered_map<Parameter, NDArrayViewPtr>& allGradients, std::unordered_map<Parameter, NDArrayViewPtr>& learnerGradients)
+    {
+        const auto& learnerParameters = learner->Parameters();
+        for (const auto& parameter : learnerParameters)
+        {
+            auto value = allGradients.find(parameter);
+            if (value == allGradients.end())
+                LogicError("Learner contains parameter that does not exists in the model");
+
+            learnerGradients[parameter] = value->second;
+        }
+    }
+
+    bool Learners::Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t sampleInMinibatch)
     {
         bool anyUpdatesPerformed = false;
         for (auto learner : m_learners)
         {
-            std::unordered_map<Parameter, NDArrayViewPtr> learnerParameterGradients;
-            const auto& learnerParameters = learner->Parameters();
-            for (const auto& parameter : learnerParameters)
-            {
-                auto value = std::find_if(gradientValues.begin(), gradientValues.end(),
-                    [&parameter](const pair<Parameter, NDArrayViewPtr>& g) { return g.first == parameter; });
-
-                if (value == gradientValues.end())
-                    LogicError("Learner contains parameter that does not exists in the model");
-
-                learnerParameterGradients[parameter] = value->second;
-            }
-
-            anyUpdatesPerformed |= learner->Update(gradientValues, trainingSampleCount);
+            std::unordered_map<Parameter, NDArrayViewPtr> learnerGradients;
+            GetLearnerGradients(learner, gradientValues, learnerGradients);
+            anyUpdatesPerformed |= learner->Update(learnerGradients, sampleInMinibatch);
         }
-
         return anyUpdatesPerformed;
     }
 
-    const std::vector<Parameter>& CompositeLearner::Parameters() const
+    bool Learners::Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, MinibatchInfo& minibatch, size_t& totalNumberOfSampleSeen)
     {
-        if (m_parameters.empty())
+        bool anyUpdatesPerformed = false;
+        for (auto l : m_learners)
         {
-            for (auto l : m_learners)
-            {
-                const auto& innerParamters = l->Parameters();
-                m_parameters.insert(m_parameters.end(), innerParamters.begin(), innerParamters.end());
-            }
+            auto learner = dynamic_pointer_cast<DistributedLearner>(l);
+            std::unordered_map<Parameter, NDArrayViewPtr> learnerGradients;
+            GetLearnerGradients(learner, gradientValues, learnerGradients);
+            anyUpdatesPerformed |= learner->Update(learnerGradients, minibatch, totalNumberOfSampleSeen);
         }
-        return m_parameters;
+        return anyUpdatesPerformed;
     }
 
-    void CompositeLearner::ResetSmoothedGradients()
-    {
-        for (auto l : m_learners)
-            l->ResetSmoothedGradients();
-    }
-
-    ///
-    /// Sets a new learning rate overriding the schedule parameter used to construct this learner.
-    ///
-    void CompositeLearner::ResetLearningRate(const LearningRateSchedule& learningRateSchedule)
-    {
-        for (auto l : m_learners)
-            l->ResetLearningRate(learningRateSchedule);
-    }
-
-    ///
-    /// Returns current learning rate.
-    ///
-    double CompositeLearner::LearningRate() const
-    {
-        double learningRate = m_learners.front()->LearningRate();
-        for (auto l : m_learners)
-            if (learningRate != l->LearningRate())
-                RuntimeError("All inner learners of the composite learner should use the same learning rate.");
-        return learningRate;
-    }
-
-    ///
-    /// Optionally overridable method to checkpoint the learner's state.
-    ///
-    Dictionary CompositeLearner::Serialize() const
+    Dictionary Learners::CreateCheckpoint()
     {
         std::vector<DictionaryValue> innerLearnersState;
         for (auto l : m_learners)
-            innerLearnersState.push_back(l->Serialize());
+            innerLearnersState.push_back(l->CreateCheckpoint());
 
         Dictionary result;
         result[L"inner"] = innerLearnersState;
         return result;
     }
 
-    ///
-    /// Optionally overridable method to restore the learner's state from a previous checkpoint.
-    ///
-    void CompositeLearner::RestoreFromCheckpoint(const Dictionary& checkpoint)
+    void Learners::RestoreFromCheckpoint(const Dictionary& checkpoint)
     {
         std::vector<DictionaryValue> innerLearnersState = checkpoint[L"inner"].Value<std::vector<DictionaryValue>>();
         if (m_learners.size() != innerLearnersState.size())
@@ -332,7 +317,7 @@ namespace CNTK
         }
     }
 
-    /*virtual*/ bool LearnerBase::Update(const unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) /*override*/
+    /*virtual*/ bool LearnerBase::Update(unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) /*override*/
     {
         if (LearningRate(trainingSampleCount) == 0.0)
         {
@@ -403,7 +388,7 @@ namespace CNTK
 
     static const std::wstring s_learnerTypeValue = L"Learner";
 
-    /*virtual*/ Dictionary LearnerBase::Serialize() const /*override*/
+    /*virtual*/ Dictionary LearnerBase::CreateCheckpoint() /*override*/
     {
         Dictionary checkpoint;
 

@@ -9,20 +9,23 @@
 
 namespace CNTK
 {
-    DistributedLearnerBase::DistributedLearnerBase(DistributedCommunicatorPtr communicator, const std::vector<LearnerPtr>& learners, size_t distributeAfterSamples)
-        : DistributedLearner(),
-          m_communicator(communicator),
-          m_learner(std::make_shared<CompositeLearner>(learners)),
+    DistributedLearnerBase::DistributedLearnerBase(DistributedCommunicatorPtr communicator, LearnerPtr learner, size_t distributeAfterSamples)
+        : DistributedLearner(communicator, learner),
           m_distributeAfterSamples(distributeAfterSamples),
           m_totalNumberOfSamplesSeen(0)
     {
+        if (!m_learner)
+            InvalidArgument("Learner is not allowed to be null.");
+
+        if (!m_communicator)
+            InvalidArgument("Communicator is not allowed to be null.");
     }
 
     // Get checkpoint state associated with distributed trainer
     Dictionary DistributedLearnerBase::CreateCheckpoint()
     {
         Dictionary result;
-        result[L"localLearners"] = m_learner->Serialize();
+        result[L"localLearners"] = m_learner->CreateCheckpoint();
         result[L"totalNumberOfSamplesSeen"] = m_totalNumberOfSamplesSeen;
         return result;
     }
@@ -57,15 +60,5 @@ namespace CNTK
 
         std::sort(result.begin(), result.end(),
             [](const std::pair<Parameter, NDArrayViewPtr>& a, const std::pair<Parameter, NDArrayViewPtr>& b) { return a.first.Uid() < b.first.Uid(); });
-    }
-
-    const std::vector<LearnerPtr>& DistributedLearnerBase::ParameterLearners() const
-    {
-        return m_learner->ParameterLearners();
-    }
-
-    const std::vector<Parameter>& DistributedLearnerBase::Parameters() const
-    {
-        return m_learner->Parameters();
     }
 }

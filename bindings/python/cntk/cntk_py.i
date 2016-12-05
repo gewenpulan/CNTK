@@ -937,13 +937,6 @@ public:
 %shared_ptr(CNTK::QuantizedDistributedCommunicator)
 %shared_ptr(CNTK::DistributedLearner)
 
-%extend CNTK::Trainer {
-    Trainer(int, const CNTK::FunctionPtr& model, const CNTK::FunctionPtr& lossFunction, const CNTK::FunctionPtr& evaluationFunction, const std::vector<CNTK::DistributedLearnerPtr>& distributedLearners)
-    {
-        return new CNTK::Trainer(model, lossFunction, evaluationFunction, distributedLearners);
-    }
-}
-
 %include "CNTKLibraryInternals.h"
 %include "CNTKLibrary.h"
 

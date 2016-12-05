@@ -170,7 +170,7 @@ if __name__=='__main__':
 
     # Create distributed trainer factory
     print("Start training: quantize_bit = {}, epochs = {}, distributed_after = {}".format(num_quantization_bits, epochs, distributed_after_samples))
-    create_dist_learner = lambda learner: distributed.data_parallel_distributed_learner(learners=[learner],
+    create_dist_learner = lambda learner: distributed.data_parallel_distributed_learner(learner=learner,
                                                                                         num_quantization_bits=num_quantization_bits,
                                                                                         distributed_after=distributed_after_samples)
     train_data=os.path.join(data_path, 'train_map.txt')

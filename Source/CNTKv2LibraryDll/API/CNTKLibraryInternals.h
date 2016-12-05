@@ -185,8 +185,8 @@ namespace CNTK
     class Learner;
     typedef std::shared_ptr<Learner> LearnerPtr;
 
-    class CompositeLearner;
-    typedef std::shared_ptr<CompositeLearner> CompositeLearnerPtr;
+    class Learners;
+    typedef std::shared_ptr<Learners> LearnersPtr;
 
     class Dictionary;
     typedef std::shared_ptr<Dictionary> DictionaryPtr;

@@ -17,9 +17,9 @@ namespace CNTK
     class LearnerBase : public Learner
     {
     public:
-        virtual bool Update(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) override final;
+        virtual bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) override final;
 
-        virtual Dictionary Serialize() const override final;
+        virtual Dictionary CreateCheckpoint() override final;
 
         virtual size_t CurrentVersion() const override final { return s_serializationVersion; }
 
@@ -255,34 +255,44 @@ namespace CNTK
     };
 
     // Helper class to manage a collection of learners.
-    class CompositeLearner : public Learner
+    class Learners
     {
     public:
-        CNTK_API CompositeLearner(const std::vector<LearnerPtr>& learners);
+        explicit Learners(const std::vector<LearnerPtr>& learners);
 
-        const std::vector<LearnerPtr>& GetLearners() const { return m_learners; }
+        bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount);
+        bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, MinibatchInfo& trainingSampleCount, size_t& totalNumberOfSampleSeen);
 
-        bool Update(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) override;
+        Dictionary CreateCheckpoint();
 
-        const std::vector<Parameter>& Parameters() const override;
-
-        void ResetSmoothedGradients() override;
-
-        Dictionary Serialize() const override;
-
-        void RestoreFromCheckpoint(const Dictionary&) override;
-
-        void ResetLearningRate(const LearningRateSchedule& learningRateSchedule) override;
-
-        double LearningRate() const override;
+        void RestoreFromCheckpoint(const Dictionary&);
 
         const std::vector<LearnerPtr>& ParameterLearners() const
         {
             return m_learners;
         }
 
+        std::unordered_set<Parameter> GetParameters() const
+        {
+            std::unordered_set<Parameter> result;
+            for (auto l : m_learners)
+            {
+                const auto& p = l->Parameters();
+                result.insert(p.begin(), p.end());
+            }
+            return result;
+        }
+
+        bool IsDistributed() const
+        {
+            return m_isDistributed;
+        }
+
     private:
+        void GetLearnerGradients(LearnerPtr learner, const std::unordered_map<Parameter, NDArrayViewPtr>& allGradients, std::unordered_map<Parameter, NDArrayViewPtr>& learnerGradients);
+        void CheckDistributedLearners();
+
         std::vector<LearnerPtr> m_learners;
-        mutable std::vector<Parameter> m_parameters;
+        bool m_isDistributed;
     };
 }

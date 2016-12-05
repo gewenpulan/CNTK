@@ -46,7 +46,7 @@ def test_cifar_resnet_distributed_error(device_id, is_1bit_sgd):
     # TODO: do the above; they lead to slightly different results, so not doing it for now
 
     distributed_learner_factory = lambda learner: distributed.data_parallel_distributed_learner(
-        learners=[learner],
+        learner=learner,
         num_quantization_bits=32,
         distributed_after=0)
 

@@ -41,7 +41,7 @@ def run_cifar_convnet_distributed():
     distributed_after_samples = 0
     num_quantization_bits = 32
     distributed_learner_factory = lambda learner: distributed.data_parallel_distributed_learner(
-        learners=[learner],
+        learner=learner,
         num_quantization_bits=num_quantization_bits,
         distributed_after=distributed_after_samples)
 

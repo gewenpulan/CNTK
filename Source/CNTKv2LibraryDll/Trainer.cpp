@@ -18,39 +18,18 @@ namespace
 namespace CNTK
 {
     Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const std::vector<LearnerPtr>& parameterLearners)
-        : Trainer(model, lossFunction, nullptr, std::make_shared<CompositeLearner>(parameterLearners), std::vector<DistributedLearnerPtr>())
+        : Trainer(model, lossFunction, nullptr, parameterLearners)
     {}
 
     Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, const std::vector<LearnerPtr>& parameterLearners)
-        : Trainer(model, lossFunction, evaluationFunction, std::make_shared<CompositeLearner>(parameterLearners), std::vector<DistributedLearnerPtr>())
-    {}
-
-    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const std::vector<DistributedLearnerPtr>& parameterLearners)
-        : Trainer(model, lossFunction, nullptr, nullptr, parameterLearners)
-    {}
-
-    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, const std::vector<DistributedLearnerPtr>& parameterLearners)
-        : Trainer(model, lossFunction, evaluationFunction, nullptr, parameterLearners)
-    {}
-
-    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, CompositeLearnerPtr learner, const std::vector<DistributedLearnerPtr> distributedLearners)
         : m_model(model),
           m_lossFunction(lossFunction),
           m_evaluationFunction(evaluationFunction),
-          m_learner(learner),
+          m_parameterLearners(std::make_shared<Learners>(parameterLearners)),
           m_prevMinibatchNumSamples(1),
           m_totalSamplesSeen(0),
-          m_distributedLearners(distributedLearners)
+          m_distributed(false)
     {
-        if (m_learner && !m_distributedLearners.empty())
-            LogicError("Local learners cannot be specified side by side with distributed learners.");
-
-        if (!m_learner && m_distributedLearners.empty())
-            InvalidArgument("Please specify learners.");
-
-        if (!m_distributedLearners.empty() && m_distributedLearners.size() != 1)
-            InvalidArgument("Currently CNTK only supports a single distributed learner.");
-
         std::vector<Variable> combinedFunctionArgs = { m_model, m_lossFunction };
         if (!m_lossFunction->Output().DynamicAxes().empty())
         {
@@ -88,12 +67,13 @@ namespace CNTK
         m_combinedTrainingFunction = Combine(combinedFunctionArgs);
 
         auto modelParameters = m_combinedTrainingFunction->Parameters();
-        auto learnerParameters = GetLearnerParameters();
+        std::unordered_set<Parameter> learnerParameters = m_parameterLearners->GetParameters();
         std::unordered_set<Parameter> modelParametersSet(modelParameters.begin(), modelParameters.end());
-        std::unordered_set<Parameter> learnerParametersSet(learnerParameters.begin(), learnerParameters.end());
-        if (modelParametersSet != learnerParametersSet)
+        if (modelParametersSet != learnerParameters)
             InvalidArgument("Trainer ctor: Union of the parameters covered by the specified parameterLearners should match the specified model's parameters");
+        m_distributed = m_parameterLearners->IsDistributed();
     }
+
 
     static double GetScalarValue(const ValuePtr& value)
     {
@@ -156,7 +136,7 @@ namespace CNTK
 
     bool Trainer::TrainMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice /*= DeviceDescriptor::UseDefaultDevice()*/)
     {
-        if (m_distributedLearners.empty())
+        if (m_distributed)
             return TrainLocalMinibatch(arguments, outputsToFetch, computeDevice);
         return TrainDistributedMinibatch(arguments, outputsToFetch, computeDevice);
     }
@@ -164,7 +144,7 @@ namespace CNTK
     bool Trainer::TrainLocalMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice /*= DeviceDescriptor::UseDefaultDevice()*/)
     {
         bool emptyMinibatch = arguments.empty() || (arguments.begin()->second == nullptr);
-        if (emptyMinibatch)
+        if (emptyMinibatch) // Nothing to train with.
             return false;
 
         std::unordered_map<Variable, ValuePtr> parameterGradients;
@@ -174,7 +154,7 @@ namespace CNTK
         std::unordered_map<Parameter, NDArrayViewPtr> gradients;
         for (const auto& parameter : m_combinedTrainingFunction->Parameters())
             gradients[parameter] = parameterGradients[parameter]->Data();
-        return m_learner->Update(gradients, m_prevMinibatchNumSamples);
+        return m_parameterLearners->Update(gradients, m_prevMinibatchNumSamples);
     }
 
     bool Trainer::TrainDistributedMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice /*= DeviceDescriptor::UseDefaultDevice()*/)
@@ -204,9 +184,8 @@ namespace CNTK
             evalCriterion = m_prevMinibatchAggregateEvalCriterionValue->Data();
         }
 
-        assert(m_distributedLearners.size() == 1);
         MinibatchInfo info { arguments.empty(), m_prevMinibatchNumSamples, trainingLoss, evalCriterion };
-        bool updated = m_distributedLearners.front()->Update(gradients, info, m_totalSamplesSeen);
+        bool updated = m_parameterLearners->Update(gradients, info, m_totalSamplesSeen);
         m_prevMinibatchNumSamples = info.numberOfSamples;
 
         // Update internal state.
@@ -263,12 +242,11 @@ namespace CNTK
 
     void Trainer::SaveCheckpoint(const std::wstring& modelFilePath, bool usinglegacyModelFormat, Dictionary externalState)
     {
-        if (m_distributedLearners.empty())
-            return Save(modelFilePath, usinglegacyModelFormat, m_learner->Serialize(), externalState);
+        auto learnersState = m_parameterLearners->CreateCheckpoint();
+        if (!m_distributed)
+            return Save(modelFilePath, usinglegacyModelFormat, learnersState, externalState);
 
         // Collect distrbuted external state.
-        assert(m_distributedLearners.size() == 1);
-        Dictionary learnerState = m_distributedLearners.front()->CreateCheckpoint();
         DistributedCommunicatorPtr communicator = MPICommunicator();
         communicator->Barrier();
 
@@ -282,7 +260,7 @@ namespace CNTK
         }
 
         if (communicator->CurrentWorker().IsMain())
-            Save(modelFilePath, usinglegacyModelFormat, learnerState, aggregatedState);
+            Save(modelFilePath, usinglegacyModelFormat, learnersState, aggregatedState);
 
         // all workers need to sync up after saving model to avoid read-after-write hazard
         // i.e. one worker is in the middle of write while another tries to read
@@ -317,14 +295,14 @@ namespace CNTK
         const DictionaryValue& learnerState = checkpoint[learnersPropertyName];
         auto externalState = checkpoint[externalStatePropertyName].Value<Dictionary>();
 
-        if (m_distributedLearners.empty())
+        if (!m_distributed)
         {
-            m_learner->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
+            m_parameterLearners->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
             return externalState;
         }
 
         assert(m_distributedLearners.size() == 1);
-        m_distributedLearners.front()->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
+        m_parameterLearners->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
         DistributedCommunicatorPtr communicator = MPICommunicator();
         communicator->Barrier();
 
@@ -351,15 +329,6 @@ namespace CNTK
 
     const std::vector<LearnerPtr>& Trainer::ParameterLearners() const
     {
-        if (!m_distributedLearners.empty())
-            return m_distributedLearners.front()->ParameterLearners();
-        return m_learner->ParameterLearners();
-    }
-
-    const std::vector<Parameter>& Trainer::GetLearnerParameters() const
-    {
-        if (!m_distributedLearners.empty())
-            return m_distributedLearners.front()->Parameters();
-        return m_learner->Parameters();
+        return m_parameterLearners->ParameterLearners();
     }
 }

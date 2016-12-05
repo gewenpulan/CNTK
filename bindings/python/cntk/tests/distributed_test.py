@@ -14,20 +14,20 @@ from .. import distributed
 from .. import cross_entropy_with_softmax, classification_error, parameter, \
         input_variable, times, plus, reduce_sum
 
-def create_data_parallel_distributed_learner(learners, quantized):
+def create_data_parallel_distributed_learner(learner, quantized):
     return distributed.data_parallel_distributed_learner(
-        learners=learners,
+        learner=learner,
         use_async_buffered_parameter_update=False,
         num_quantization_bits=(1 if quantized else 32))
 
-def create_block_momentum_distributed_learner(learners):
+def create_block_momentum_distributed_learner(learner):
     return distributed.block_momentum_distributed_learner(
-        learners=learners,
+        learner=learner,
         block_size=1024)
 
-def create_block_momentum_distributed_learner_with_time_constant(learners):
+def create_block_momentum_distributed_learner_with_time_constant(learner):
     return distributed.block_momentum_distributed_learner(
-        learners=learners,
+        learner=learner,
         block_size=1024,
         block_momentum_as_time_constant=4096)
 
@@ -42,7 +42,7 @@ def run_distributed_training(tmpdir, create_func):
 
     momentum_time_constant = momentum_as_time_constant_schedule(1100)
     lr_per_sample = learning_rate_schedule(0.007, UnitType.sample)
-    dist_learner = create_func([ momentum_sgd(z.parameters, lr_per_sample, momentum_time_constant) ])
+    dist_learner = create_func(momentum_sgd(z.parameters, lr_per_sample, momentum_time_constant))
 
     communicator = dist_learner.communicator()
     workers = communicator.workers()
@@ -76,11 +76,11 @@ def run_distributed_training(tmpdir, create_func):
 def test_distributed(tmpdir, is_1bit_sgd):
     quantized=(True if is_1bit_sgd==1 else False)
 
-    simple_aggregation=lambda learners: create_data_parallel_distributed_learner(learners, False)
+    simple_aggregation=lambda learner: create_data_parallel_distributed_learner(learner, False)
     run_distributed_training(tmpdir, create_func=simple_aggregation)
 
     if is_1bit_sgd == 1:
-        quantized_aggregation=lambda learners: create_data_parallel_distributed_learner(learners, True)
+        quantized_aggregation=lambda learner: create_data_parallel_distributed_learner(learner, True)
         run_distributed_training(tmpdir, create_func=quantized_aggregation)
 
         run_distributed_training(tmpdir, create_func=create_block_momentum_distributed_learner)

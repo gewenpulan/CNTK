@@ -106,41 +106,38 @@ class DistributedLearner(cntk_py.DistributedLearner):
         return super().get_communicator()
         
 @typemap
-def data_parallel_distributed_learner(learners, distributed_after=0, num_quantization_bits=32, use_async_buffered_parameter_update=False):
+def data_parallel_distributed_learner(learner, distributed_after=0, num_quantization_bits=32, use_async_buffered_parameter_update=False):
     '''
     Creates a data parallel distributed learner
 
     Args:
-        learners: a list of local learners (i.e. sgd)
+        learner: a local learner (i.e. sgd)
         distributed_after (int): number of samples after which distributed training starts
         num_quantization_bits (int): number of bits for quantization (1 to 32)
         use_async_buffered_parameter_update (bool): use async buffered parameter update
     Returns:
         a distributed learner instance
     '''
-    if not isinstance(learners, list):
-        learners = [learners]
-
     if (num_quantization_bits < 32):
         return cntk_py.create_quantized_data_parallel_distributed_learner(
             cntk_py.quantized_mpicommunicator(True, True, num_quantization_bits),
-            learners,
+            learner,
             distributed_after,
             use_async_buffered_parameter_update)
     else:
         return cntk_py.create_data_parallel_distributed_learner(
             cntk_py.mpicommunicator(),
-            learners,
+            learner,
             distributed_after,
             use_async_buffered_parameter_update)
 
 @typemap
-def block_momentum_distributed_learner(learners, block_size, block_momentum_as_time_constant=None, use_nestrov_momentum=True, reset_sgd_momentum_after_aggregation=True, block_learning_rate=1.0, distributed_after=0):
+def block_momentum_distributed_learner(learner, block_size, block_momentum_as_time_constant=None, use_nestrov_momentum=True, reset_sgd_momentum_after_aggregation=True, block_learning_rate=1.0, distributed_after=0):
     '''
     Creates a block momentum distributed learner
 
     Args:
-        learners: a list of local learners (i.e. sgd)
+        learner: a local learner (i.e. sgd)
         block_size (int): block size
         block_momentum_as_time_constant (float): block momentum as time constant
         use_nestrov_momentum (bool): use nestrov momentum
@@ -150,13 +147,10 @@ def block_momentum_distributed_learner(learners, block_size, block_momentum_as_t
     Returns:
         a distributed learner instance
     '''
-    if not isinstance(learners, list):
-        learners = [learners]
-
     if block_momentum_as_time_constant == None:
         return cntk_py.create_block_momentum_distributed_learner(
             cntk_py.mpicommunicator(),
-            learners,
+            learner,
             distributed_after,
             block_size,
             use_nestrov_momentum,
@@ -165,7 +159,7 @@ def block_momentum_distributed_learner(learners, block_size, block_momentum_as_t
     else:
         return cntk_py.create_block_momentum_distributed_learner(
             cntk_py.mpicommunicator(),
-            learners,
+            learner,
             distributed_after,
             block_size,
             block_momentum_as_time_constant,

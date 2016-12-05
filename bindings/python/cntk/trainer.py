@@ -36,11 +36,7 @@ class Trainer(cntk_py.Trainer):
         if not isinstance(parameter_learners, list):
             parameter_learners = [parameter_learners]
 
-        is_distributed = len([l for l in parameter_learners if isinstance(l, cntk_py.DistributedLearner)]) != 0
-        if is_distributed:
-            super(Trainer, self).__init__(0, model, loss_function, eval_function, parameter_learners)
-        else:
-            super(Trainer, self).__init__(model, loss_function, eval_function, parameter_learners)
+        super(Trainer, self).__init__(model, loss_function, eval_function, parameter_learners)
 
     def train_minibatch(self, arguments, outputs=None, device=None):
         '''
