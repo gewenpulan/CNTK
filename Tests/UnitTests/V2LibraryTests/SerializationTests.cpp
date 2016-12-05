@@ -195,22 +195,20 @@ void TestLearnerSerialization(int numParameters, const DeviceDescriptor& device)
     NDShape shape = CreateShape(5, maxDimSize);
 
     vector<Parameter> parameters;
-    vector<std::pair<Parameter, NDArrayViewPtr>> gradientValues;
+    unordered_map<Parameter, NDArrayViewPtr> gradientValues;
     for (int i = 0; i < numParameters; i++)
     {
         Parameter parameter(NDArrayView::RandomUniform<ElementType>(shape, -0.5, 0.5, i, device), L"parameter_" + to_wstring(i));
         parameters.push_back(parameter);
-        gradientValues.push_back(make_pair(parameter, NDArrayView::RandomUniform<ElementType>(shape, -0.5, 0.5, numParameters + i, device)));
+        gradientValues[parameter] = NDArrayView::RandomUniform<ElementType>(shape, -0.5, 0.5, numParameters + i, device);
     }
 
     auto learner1 = SGDLearner(parameters, LearningRatePerSampleSchedule(0.05));
-
-    MinibatchInfo minibatch { false, 1 };
-    size_t totalSamplesSeen = 0;
-    learner1->Update(gradientValues, minibatch, totalSamplesSeen);
+    
+    learner1->Update(gradientValues, 1);
 
     {
-        auto checkpoint = learner1->CreateCheckpoint();
+        auto checkpoint = learner1->Serialize();
         fstream stream;
         OpenStream(stream, tempFilePath, false);
         stream << checkpoint;
@@ -228,18 +226,17 @@ void TestLearnerSerialization(int numParameters, const DeviceDescriptor& device)
     }
 
     int i = 0;
-    gradientValues.clear();
     for (auto parameter : parameters)
     {
-        gradientValues.push_back(make_pair(parameter, NDArrayView::RandomUniform<ElementType>(shape, -0.5, 0.5, 2*numParameters + i, device)));
+        gradientValues[parameter] = NDArrayView::RandomUniform<ElementType>(shape, -0.5, 0.5, 2*numParameters + i, device);
         i++;
     }
 
-    learner1->Update(gradientValues, minibatch, totalSamplesSeen);
-    learner2->Update(gradientValues, minibatch, totalSamplesSeen);
+    learner1->Update(gradientValues, 1);
+    learner2->Update(gradientValues, 1);
 
-     auto checkpoint1 = learner1->CreateCheckpoint();
-     auto checkpoint2 = learner2->CreateCheckpoint();
+     auto checkpoint1 = learner1->Serialize();
+     auto checkpoint2 = learner2->Serialize();
     
     if (checkpoint1 != checkpoint2)
         throw std::runtime_error("TestLearnerSerialization: original and restored from a checkpoint learners diverge.");

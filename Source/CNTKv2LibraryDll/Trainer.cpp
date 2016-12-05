@@ -18,21 +18,39 @@ namespace
 namespace CNTK
 {
     Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const std::vector<LearnerPtr>& parameterLearners)
-        : Trainer(model, lossFunction, nullptr, std::make_shared<CompositeLearner>(parameterLearners))
+        : Trainer(model, lossFunction, nullptr, std::make_shared<CompositeLearner>(parameterLearners), std::vector<DistributedLearnerPtr>())
     {}
 
     Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, const std::vector<LearnerPtr>& parameterLearners)
-        : Trainer(model, lossFunction, evaluationFunction, std::make_shared<CompositeLearner>(parameterLearners))
+        : Trainer(model, lossFunction, evaluationFunction, std::make_shared<CompositeLearner>(parameterLearners), std::vector<DistributedLearnerPtr>())
     {}
 
-    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, CompositeLearnerPtr learner)
+    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const std::vector<DistributedLearnerPtr>& parameterLearners)
+        : Trainer(model, lossFunction, nullptr, nullptr, parameterLearners)
+    {}
+
+    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, const std::vector<DistributedLearnerPtr>& parameterLearners)
+        : Trainer(model, lossFunction, evaluationFunction, nullptr, parameterLearners)
+    {}
+
+    Trainer::Trainer(const FunctionPtr& model, const FunctionPtr& lossFunction, const FunctionPtr& evaluationFunction, CompositeLearnerPtr learner, const std::vector<DistributedLearnerPtr> distributedLearners)
         : m_model(model),
           m_lossFunction(lossFunction),
           m_evaluationFunction(evaluationFunction),
           m_learner(learner),
           m_prevMinibatchNumSamples(1),
-          m_totalSamplesSeen(0)
+          m_totalSamplesSeen(0),
+          m_distributedLearners(distributedLearners)
     {
+        if (m_learner && !m_distributedLearners.empty())
+            LogicError("Local learners cannot be specified side by side with distributed learners.");
+
+        if (!m_learner && m_distributedLearners.empty())
+            InvalidArgument("Please specify learners.");
+
+        if (!m_distributedLearners.empty() && m_distributedLearners.size() != 1)
+            InvalidArgument("Currently CNTK only supports a single distributed learner.");
+
         std::vector<Variable> combinedFunctionArgs = { m_model, m_lossFunction };
         if (!m_lossFunction->Output().DynamicAxes().empty())
         {
@@ -70,7 +88,7 @@ namespace CNTK
         m_combinedTrainingFunction = Combine(combinedFunctionArgs);
 
         auto modelParameters = m_combinedTrainingFunction->Parameters();
-        auto learnerParameters = m_learner->Parameters();
+        auto learnerParameters = GetLearnerParameters();
         std::unordered_set<Parameter> modelParametersSet(modelParameters.begin(), modelParameters.end());
         std::unordered_set<Parameter> learnerParametersSet(learnerParameters.begin(), learnerParameters.end());
         if (modelParametersSet != learnerParametersSet)
@@ -138,10 +156,30 @@ namespace CNTK
 
     bool Trainer::TrainMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice /*= DeviceDescriptor::UseDefaultDevice()*/)
     {
-        // TODO: We should reconsider the interface
-        // Probably passing the flag that the minibatch is the last, and empty arguments in case of empty minibatch.
+        if (m_distributedLearners.empty())
+            return TrainLocalMinibatch(arguments, outputsToFetch, computeDevice);
+        return TrainDistributedMinibatch(arguments, outputsToFetch, computeDevice);
+    }
 
-        std::vector<std::pair<Parameter, NDArrayViewPtr>> gradients;
+    bool Trainer::TrainLocalMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice /*= DeviceDescriptor::UseDefaultDevice()*/)
+    {
+        bool emptyMinibatch = arguments.empty() || (arguments.begin()->second == nullptr);
+        if (emptyMinibatch)
+            return false;
+
+        std::unordered_map<Variable, ValuePtr> parameterGradients;
+        ExecuteForwardBackward(arguments, outputsToFetch, computeDevice, parameterGradients);
+        m_totalSamplesSeen += m_prevMinibatchNumSamples;
+
+        std::unordered_map<Parameter, NDArrayViewPtr> gradients;
+        for (const auto& parameter : m_combinedTrainingFunction->Parameters())
+            gradients[parameter] = parameterGradients[parameter]->Data();
+        return m_learner->Update(gradients, m_prevMinibatchNumSamples);
+    }
+
+    bool Trainer::TrainDistributedMinibatch(const std::unordered_map<Variable, ValuePtr>& arguments, std::unordered_map<Variable, ValuePtr>& outputsToFetch, const DeviceDescriptor& computeDevice /*= DeviceDescriptor::UseDefaultDevice()*/)
+    {
+        std::unordered_map<Parameter, NDArrayViewPtr> gradients;
         auto modelParameters = m_combinedTrainingFunction->Parameters();
         gradients.reserve(modelParameters.size());
 
@@ -153,7 +191,7 @@ namespace CNTK
             m_prevMinibatchNumSamples = 0;
             // Gradients are not existing.
             for (const auto& parameter : modelParameters)
-                gradients.push_back(std::make_pair(parameter, nullptr));
+                gradients[parameter] = nullptr;
         }
         else
         {
@@ -161,17 +199,17 @@ namespace CNTK
             std::unordered_map<Variable, ValuePtr> parameterGradients;
             ExecuteForwardBackward(arguments, outputsToFetch, computeDevice, parameterGradients);
             for (const auto& parameter : modelParameters)
-                gradients.push_back(std::make_pair(parameter, parameterGradients[parameter]->Data()));
+                gradients[parameter] = parameterGradients[parameter]->Data();
             trainingLoss = m_prevMinibatchAggregateTrainingLossValue->Data();
             evalCriterion = m_prevMinibatchAggregateEvalCriterionValue->Data();
         }
 
-        // Update parameters.
+        assert(m_distributedLearners.size() == 1);
         MinibatchInfo info { arguments.empty(), m_prevMinibatchNumSamples, trainingLoss, evalCriterion };
-        auto updated = m_learner->Update(gradients, info, m_totalSamplesSeen);
+        bool updated = m_distributedLearners.front()->Update(gradients, info, m_totalSamplesSeen);
+        m_prevMinibatchNumSamples = info.numberOfSamples;
 
         // Update internal state.
-        m_prevMinibatchNumSamples = info.numberOfSamples;
         if (emptyMinibatch)
         {
             // Have to reassign loss and criterion.
@@ -225,13 +263,12 @@ namespace CNTK
 
     void Trainer::SaveCheckpoint(const std::wstring& modelFilePath, bool usinglegacyModelFormat, Dictionary externalState)
     {
-        // TODO: Need to pass currect state of the minibatch source in here.
-        Dictionary learnerState = m_learner->CreateCheckpoint();
-
-        if (!m_learner->IsDistributed())
-            return Save(modelFilePath, usinglegacyModelFormat, learnerState, externalState);
+        if (m_distributedLearners.empty())
+            return Save(modelFilePath, usinglegacyModelFormat, m_learner->Serialize(), externalState);
 
         // Collect distrbuted external state.
+        assert(m_distributedLearners.size() == 1);
+        Dictionary learnerState = m_distributedLearners.front()->CreateCheckpoint();
         DistributedCommunicatorPtr communicator = MPICommunicator();
         communicator->Barrier();
 
@@ -278,12 +315,16 @@ namespace CNTK
 
         m_totalSamplesSeen = checkpoint[totalSeenSamplesPropertyName].Value<size_t>();
         const DictionaryValue& learnerState = checkpoint[learnersPropertyName];
-        m_learner->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
         auto externalState = checkpoint[externalStatePropertyName].Value<Dictionary>();
 
-        if (!m_learner->IsDistributed())
+        if (m_distributedLearners.empty())
+        {
+            m_learner->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
             return externalState;
+        }
 
+        assert(m_distributedLearners.size() == 1);
+        m_distributedLearners.front()->RestoreFromCheckpoint(learnerState.Value<Dictionary>());
         DistributedCommunicatorPtr communicator = MPICommunicator();
         communicator->Barrier();
 
@@ -310,6 +351,15 @@ namespace CNTK
 
     const std::vector<LearnerPtr>& Trainer::ParameterLearners() const
     {
+        if (!m_distributedLearners.empty())
+            return m_distributedLearners.front()->ParameterLearners();
         return m_learner->ParameterLearners();
+    }
+
+    const std::vector<Parameter>& Trainer::GetLearnerParameters() const
+    {
+        if (!m_distributedLearners.empty())
+            return m_distributedLearners.front()->Parameters();
+        return m_learner->Parameters();
     }
 }

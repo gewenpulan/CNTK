@@ -77,14 +77,6 @@ def _verify_momentum_type(momentum):
                          'momentum_as_time_constant_schedule() function)'
                          % type(momentum))
 
-# a factory method to return a minibatch info
-def minibatch_info(number_of_samples, at_end_of_sweep = False, at_end_of_data = False):
-   result = cntk_py.MinibatchInfo()
-   result.at_end_of_data = at_end_of_data
-   result.at_end_of_sweep = at_end_of_sweep
-   result.number_of_samples = number_of_samples
-   return result
-
 class Learner(cntk_py.Learner):
     '''
     Abstraction for learning a subset of parameters of a learnable function using first order gradient values
@@ -93,25 +85,24 @@ class Learner(cntk_py.Learner):
     To instantiate a concrete learner, use the factory methods in this module.
     '''
 
-    def update(self, gradient_values, minibatch_info):
+    def update(self, gradient_values, training_sample_count):
         '''
         Update the parameters associated with this learner.
 
         Args:
-            gradient_values (list): contains tuples that map :class:`~cntk.variables.Parameter` to
+            gradient_values (dict): maps :class:`~cntk.variables.Parameter` to
              a NumPy array containing the first order gradient values for the
              Parameter w.r.t. the training objective.
-             Gradient values can be updated in case when the leaner is distributed (i.e. 1bitsgd learner)
-             The gradient values are aggregated in the list order in case of distributed learners.
-            minibatch_info(MinibatchInfo): information about the current minibatch
+            training_sample_count (int): training sample count
 
         Returns:
             `False` to indicate that learning has stopped for all of the parameters associated with this learner
         '''
         from .utils import _create_NDArrayView_from_NumPy
-        var_nd = [ (var, _create_NDArrayView_from_NumPy(val)) for (var, val) in gradient_values ]
+        var_nd_map = { var: _create_NDArrayView_from_NumPy(val) for var, val in
+                gradient_values.items() }
 
-        return super(Learner, self).inner_update(var_nd, minibatch_info)
+        return super(Learner, self).update(var_nd_map, training_sample_count)
 
     @property
     @typemap

@@ -17,60 +17,25 @@ namespace CNTK
     class LearnerBase : public Learner
     {
     public:
-        bool Update(std::vector<std::pair<Parameter, NDArrayViewPtr>>& gradientValues, MinibatchInfo& currentMinibatch, size_t& totalSeenSamples) override final;
+        virtual bool Update(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) override final;
 
-        Dictionary CreateCheckpoint() override final;
+        virtual Dictionary Serialize() const override final;
+
+        virtual size_t CurrentVersion() const override final { return s_serializationVersion; }
 
         virtual void RestoreFromCheckpoint(const Dictionary& checkpoint) override final;
 
-        virtual void ResetSmoothedGradients() final;
-
-        const std::vector<Parameter>& Parameters() const override
-        {
-            return m_parameters;
-        }
-
-        ///
-        /// Sets a new learning rate overriding the schedule parameter used to construct this learner.
-        ///
-        void ResetLearningRate(const LearningRateSchedule& learningRateSchedule) override
-        {
-            m_learningRateSchedule = learningRateSchedule;
-        }
-
-        ///
-        /// Returns current learning rate.
-        ///
-        double LearningRate() const override
-        {
-            return GetCurrentTrainingParameterValue<double>(m_learningRateSchedule);
-        }
+        virtual void ResetSmoothedGradients() override final;
 
     protected:
-        ///
-        /// Retrieves and returns current value from the training parameter schedule.
-        ///
-        template <typename ElementType>
-        ElementType GetCurrentTrainingParameterValue(const TrainingParameterSchedule<ElementType>& schedule) const
-        {
-            if (schedule.IsSweepBased())
-            {
-                return schedule[m_sweepCount];
-            }
-            else
-            {
-                return schedule[m_sampleCount];
-            }
-        }
-
         // allocateSmoothGradients flag specifies whether NDArrayViews for smoothed gradients can be allocated 
         // in the base class constructor (in which case they are allocated with the shapes identical to the shapes of
         // the corresponding parameters) or if the allocation should be deferred to the subclass constructor (which
         // performs allocation that is specific to the particular learner, see FSAdaGrad and RMSProp).
         LearnerBase(const std::vector<Parameter>& parameters,
-                    const LearningRateSchedule& learningRateSchedule,
-                    AdditionalLearningOptions additionalOptions,
-                    bool allocateSmoothGradients = true);
+            const LearningRateSchedule& learningRateSchedule,
+            AdditionalLearningOptions additionalOptions,
+            bool allocateSmoothGradients = true);
 
         virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const = 0;
 
@@ -79,7 +44,7 @@ namespace CNTK
         // Returns current (per-sample) learning rate.
         double LearningRate(size_t minibatchSize) const
         {
-            auto learningRate = LearningRate();
+            auto learningRate = Learner::LearningRate();
             if (m_learningRateSchedule.Unit() == LearningRateSchedule::UnitType::Minibatch)
             {
                 // learning rate needs to be converted to the per-sample value.
@@ -90,13 +55,8 @@ namespace CNTK
         }
 
         AdditionalLearningOptions m_additionalOptions;
-        std::unordered_map<Parameter, NDArrayViewPtr> m_smoothedGradientValues;
 
-        std::vector<Parameter> m_parameters;
-        LearningRateSchedule m_learningRateSchedule;
-        size_t m_sampleCount;
-        size_t m_minibatchCount;
-        size_t m_sweepCount;
+        std::unordered_map<Parameter, NDArrayViewPtr> m_smoothedGradientValues;
 
         // The following four static protected methods expose private methods of NDArrayView class
         // (which declares LearnerBase as friend class), so that they are available to subclasses.
@@ -131,6 +91,8 @@ namespace CNTK
 
         // Retrieves the shape of the matrix corresponding to the parameter value.
         static NDShape GetMatrixShape(const Parameter& parameter);
+
+        size_t m_minibatchCount;
 
     private:
         // Templatized update function, it invokes preprocess and postprocess using the provided
@@ -300,13 +262,13 @@ namespace CNTK
 
         const std::vector<LearnerPtr>& GetLearners() const { return m_learners; }
 
-        bool Update(std::vector<std::pair<Parameter, NDArrayViewPtr>>& gradientValues, MinibatchInfo& trainingSampleCount, size_t& totalNumberOfSampleSeen) override;
+        bool Update(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) override;
 
         const std::vector<Parameter>& Parameters() const override;
 
         void ResetSmoothedGradients() override;
 
-        Dictionary CreateCheckpoint() override;
+        Dictionary Serialize() const override;
 
         void RestoreFromCheckpoint(const Dictionary&) override;
 
@@ -318,16 +280,6 @@ namespace CNTK
         {
             return m_learners;
         }
-
-        bool IsDistributed() const override
-        {
-            bool result = false;
-            for (const auto&l : m_learners)
-                result |= l->IsDistributed();
-            return result;
-        }
-
-        virtual ~CompositeLearner() {}
 
     private:
         std::vector<LearnerPtr> m_learners;

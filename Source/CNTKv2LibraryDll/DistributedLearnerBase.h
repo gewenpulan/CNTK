@@ -6,7 +6,6 @@
 #pragma once
 
 #include "CNTKLibrary.h"
-#include "Learner.h"
 
 namespace CNTK
 {
@@ -16,53 +15,31 @@ namespace CNTK
     class DistributedLearnerBase : public DistributedLearner
     {
     public:
-        const std::vector<Parameter>& Parameters() const override
-        {
-            return m_learner->Parameters();
-        }
-
-        void ResetSmoothedGradients() override
-        {
-            return m_learner->ResetSmoothedGradients();
-        }
-
         Dictionary CreateCheckpoint() override;
 
         void RestoreFromCheckpoint(const Dictionary& checkpoint) override;
-
-        void Shutdown() override {}
 
         DistributedCommunicatorPtr GetCommunicator() override
         {
             return m_communicator;
         }
 
-        ///
-        /// Sets a new learning rate overriding the schedule parameter used to construct this learner.
-        ///
-        void ResetLearningRate(const LearningRateSchedule& learningRateSchedule) override
-        {
-            m_learner->ResetLearningRate(learningRateSchedule);
-        }
-
-        ///
-        /// Returns current learning rate.
-        ///
-        double LearningRate() const override
-        {
-            return m_learner->LearningRate();
-        }
+        const std::vector<Parameter>& Parameters() const override;
+        const std::vector<LearnerPtr>& ParameterLearners() const override;
 
     protected:
         DistributedLearnerBase(DistributedCommunicatorPtr communicator, const std::vector<LearnerPtr>& learners, size_t distributeAfterSamples);
 
-        static void PrepaireZeroGradients(std::vector<std::pair<Parameter, NDArrayViewPtr>>& gradientValues, MinibatchInfo& info);
+        static void PrepaireZeroGradients(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, MinibatchInfo& info);
+        static void ConvertToOrdered(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, std::vector<std::pair<Parameter, NDArrayViewPtr>>& result);
 
         const DistributedCommunicatorPtr m_communicator;
         const CompositeLearnerPtr m_learner;
         const size_t m_distributeAfterSamples;
 
         size_t m_totalNumberOfSamplesSeen;
+        std::vector<std::pair<Parameter, NDArrayViewPtr>> m_gradientBuffer;
+        std::vector<Parameter> m_parameters;
 
         DistributedLearnerBase(const DistributedLearnerBase&) = delete;
         DistributedLearnerBase& operator=(const DistributedLearnerBase&) = delete;

@@ -6,6 +6,7 @@
 #include "stdafx.h"
 #include "DataParallelDistributedLearner.h"
 #include "DistributedCommunicator.h"
+#include "Learner.h"
 
 #ifdef CNTK_PARALLEL_TRAINING_SUPPORT
 #include "QuantizedDistributedCommunicator.h"
@@ -119,15 +120,16 @@ namespace CNTK
             LogicError("Asynchronous parameter update is not yet supported.");
     }
 
-    bool DataParallelDistributedLearner::Update(std::vector<std::pair<Parameter, NDArrayViewPtr>>& gradientValues, MinibatchInfo& info, size_t& totalNumberOfSampleSeen)
+    bool DataParallelDistributedLearner::Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, MinibatchInfo& info, size_t& totalNumberOfSampleSeen)
     {
         if (m_totalNumberOfSamplesSeen >= m_distributeAfterSamples)
         {
             if (info.IsEmpty())
                 PrepaireZeroGradients(gradientValues, info);
+            ConvertToOrdered(gradientValues, m_gradientBuffer);
 
             std::vector<NDArrayViewPtr> valuesToAggregate;
-            for (const auto& i : gradientValues)
+            for (const auto& i : m_gradientBuffer)
                 valuesToAggregate.push_back(i.second);
             valuesToAggregate.push_back(info.evalCriterionValue);
             valuesToAggregate.push_back(info.trainingLossValue);
@@ -142,8 +144,7 @@ namespace CNTK
         m_totalNumberOfSamplesSeen += info.numberOfSamples;
         totalNumberOfSampleSeen = m_totalNumberOfSamplesSeen;
 
-        size_t ignored = 0;
-        auto result = m_learner->Update(gradientValues, info, ignored);
+        auto result = m_learner->Update(gradientValues, info.numberOfSamples);
         return result && !info.IsEmpty();
     }
 }

@@ -27,7 +27,9 @@ using namespace std;
 
 namespace CNTK
 {
-    CompositeLearner::CompositeLearner(const std::vector<LearnerPtr>& learners) : m_learners(learners)
+    CompositeLearner::CompositeLearner(const std::vector<LearnerPtr>& learners) : 
+        Learner(std::vector<Parameter>(), LearningRateSchedule(0, TrainingParameterSchedule<double>::UnitType::Sample)),
+        m_learners(learners)
     {
         std::unordered_set<Parameter> learnerParameters;
         for (const auto& learner : learners)
@@ -42,7 +44,7 @@ namespace CNTK
         }
     }
 
-    bool CompositeLearner::Update(std::vector<std::pair<Parameter, NDArrayViewPtr>>& gradients, MinibatchInfo& minibatch, size_t& totalNumberOfSampleSeen)
+    bool CompositeLearner::Update(const std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount)
     {
         bool anyUpdatesPerformed = false;
         for (auto learner : m_learners)
@@ -51,16 +53,16 @@ namespace CNTK
             const auto& learnerParameters = learner->Parameters();
             for (const auto& parameter : learnerParameters)
             {
-                auto value = std::find_if(gradients.begin(), gradients.end(),
+                auto value = std::find_if(gradientValues.begin(), gradientValues.end(),
                     [&parameter](const pair<Parameter, NDArrayViewPtr>& g) { return g.first == parameter; });
 
-                if (value == gradients.end())
+                if (value == gradientValues.end())
                     LogicError("Learner contains parameter that does not exists in the model");
 
                 learnerParameterGradients[parameter] = value->second;
             }
 
-            anyUpdatesPerformed |= learner->Update(gradients, minibatch, totalNumberOfSampleSeen);
+            anyUpdatesPerformed |= learner->Update(gradientValues, trainingSampleCount);
         }
 
         return anyUpdatesPerformed;
@@ -109,11 +111,11 @@ namespace CNTK
     ///
     /// Optionally overridable method to checkpoint the learner's state.
     ///
-    Dictionary CompositeLearner::CreateCheckpoint()
+    Dictionary CompositeLearner::Serialize() const
     {
         std::vector<DictionaryValue> innerLearnersState;
-        for (auto l: m_learners)
-            innerLearnersState.push_back(l->CreateCheckpoint());
+        for (auto l : m_learners)
+            innerLearnersState.push_back(l->Serialize());
 
         Dictionary result;
         result[L"inner"] = innerLearnersState;
@@ -281,12 +283,9 @@ namespace CNTK
                              const LearningRateSchedule& learningRateSchedule,
                              AdditionalLearningOptions additionalOptions,
                              bool allocateSmoothGradients /* = true */)
-                             :  m_minibatchCount(0),
-                             m_additionalOptions(additionalOptions),
-                             m_parameters(parameters),
-                             m_learningRateSchedule(learningRateSchedule),
-                             m_sampleCount(0),
-                             m_sweepCount(0)
+                             : Learner(parameters, learningRateSchedule),
+                             m_minibatchCount(0),
+                             m_additionalOptions(additionalOptions)
     {
         std::unordered_set<Parameter> uniqueParameters(parameters.begin(), parameters.end());
 
@@ -333,28 +332,20 @@ namespace CNTK
         }
     }
 
-    /*virtual*/ bool LearnerBase::Update(vector<pair<Parameter, NDArrayViewPtr>>& gradientValues, MinibatchInfo& info, size_t&) /*override*/
+    /*virtual*/ bool LearnerBase::Update(const unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount) /*override*/
     {
-        if (info.numberOfSamples == 0 || LearningRate(info.numberOfSamples) == 0.0)
+        if (LearningRate(trainingSampleCount) == 0.0)
         {
             return false;
         }
 
         // make sure trainingSampleCount is a valid value
-        auto trainingSampleCount = info.numberOfSamples;
         assert(trainingSampleCount > 0);
 
         for (const auto& parameter : Parameters())
         {
             const auto& smoothedGradientValue = m_smoothedGradientValues.at(parameter);
-            auto found = std::find_if(gradientValues.begin(), gradientValues.end(),
-                [&parameter](const std::pair<Parameter, NDArrayViewPtr>& g) { return g.first == parameter; });
-
-            if (found == gradientValues.end())
-                RuntimeError("Gradient for paramter '%ls' cannot be found.", parameter.Name().c_str());
-
-            const auto& gradientValue = found->second;
-
+            const auto& gradientValue = gradientValues.at(parameter);
             // TODO: make this a runtime parameter.
 #if DUMPOUTPUT
             LOGPRINTF(stderr, "Update_%ls\n", parameter.Uid().c_str());
@@ -412,7 +403,7 @@ namespace CNTK
 
     static const std::wstring s_learnerTypeValue = L"Learner";
 
-    /*virtual*/ Dictionary LearnerBase::CreateCheckpoint() /*override*/
+    /*virtual*/ Dictionary LearnerBase::Serialize() const /*override*/
     {
         Dictionary checkpoint;
 

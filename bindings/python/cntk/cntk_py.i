@@ -40,7 +40,6 @@
 %template() std::vector<std::vector<double>>;
 
 %template() std::vector<CNTK::Variable>;
-%template() std::vector<std::shared_ptr<CNTK::NDArrayView>>;
 %template() std::vector<CNTK::Parameter>;
 %template() std::vector<CNTK::Constant>;
 %template() std::vector<CNTK::Axis>;
@@ -48,6 +47,7 @@
 %template() std::vector<CNTK::StreamConfiguration>;
 %template() std::vector<std::shared_ptr<CNTK::Function>>;
 %template() std::vector<std::shared_ptr<CNTK::Learner>>;
+%template() std::vector<std::shared_ptr<CNTK::DistributedLearner>>;
 %template() std::pair<size_t, double>;
 %template() std::vector<std::pair<size_t, double>>;
 
@@ -57,6 +57,7 @@
 %ignore CNTK::Internal::Gather;
 %ignore CNTK::Internal::Scatter;
 %ignore CNTK::Internal::Slice;
+%ignore CNTK::DistributedCommunicator::AggregateAsync;
 
 // These aren't exported from the CNTK C++ library
 %ignore CNTK::Internal::IsReversingTensorShapesInErrorMessagesEnabled;
@@ -159,41 +160,6 @@ def dynamic_axes(self):
         }
 
         return ndarray;
-    }
-}
-
-%fragment("Utility functions", "header")
-{
-    template<class T>
-    T* GetInnerPointer(PyObject* object, const std::string& errorMessage)
-    {
-        void *raw_parameter = nullptr;
-        int errorStatus = SWIG_ConvertPtr(object, &raw_parameter, swig::type_info<T>(),  0);
-        if (!SWIG_IsOK(errorStatus))
-        {
-            SWIG_Error(SWIG_ArgError(errorStatus), errorMessage.c_str());
-            throw std::runtime_error(errorMessage);
-        }
-        return raw_parameter ? reinterpret_cast<T*>(raw_parameter) : nullptr;
-    }
-
-    template<class T>
-    void CheckNotNull(T* pointer, const std::string& errorMessage)
-    {
-        if(pointer != nullptr)
-            return;
-
-        auto fullMessage = errorMessage + ": value is not allowed to be null";
-        SWIG_Error(SWIG_ValueError, fullMessage.c_str());
-        throw std::invalid_argument(fullMessage);
-    }
-
-    template<class T>
-    T* GetNotNullInnerPointer(PyObject* object, const std::string& errorMessage)
-    {
-        T* result = GetInnerPointer<T>(object, errorMessage);
-        CheckNotNull(result, errorMessage);
-        return result;
     }
 }
 
@@ -399,99 +365,6 @@ public:
     SizeTWrapper(size_t v) : value(v) {}
 };
 %}
-
-// extending learner:
-%extend CNTK::Learner
-{
-    // Adapting Update method of a learner to use tuple, primitive types cannot be easily passed by reference. 
-    // Thus adapting the signature to return a tuple. 
-    std::pair<bool, size_t> InnerUpdate(std::vector<std::pair<CNTK::Parameter, CNTK::NDArrayViewPtr>>& gradientValues, CNTK::MinibatchInfo& minibatchInfo) 
-    {
-        size_t totalSamplesSeen = 0;
-        bool result = self->Update(gradientValues, minibatchInfo, totalSamplesSeen);
-        return std::make_pair(result, totalSamplesSeen);
-    }
-}
-
-//
-// Converting Python list {pair<Parameter, NDArrayView>} to std::vector
-//
-
-%typecheck(1000) std::vector<std::pair<CNTK::Parameter, CNTK::NDArrayViewPtr>>& {
-    // '1000' is the typecheck precedence code. It means: check after basic
-    // types, but before arrays. See: http://www.swig.org/Doc1.3/Typemaps.html#Typemaps_overloading
-    $1 = PyList_Check($input) ? 1 : 0;
-}
-
-%typemap(in, fragment="Utility functions") std::vector<std::pair<CNTK::Parameter, CNTK::NDArrayViewPtr>>&
-    (std::vector<std::pair<CNTK::Parameter, CNTK::NDArrayViewPtr>> args_vector)
-    {
-         if (!PyList_Check($input))
-             SWIG_exception(SWIG_TypeError, "list of tuples expected");
-
-         PyObject *iterator = PyObject_GetIter($input);
-         if (iterator == nullptr)
-             SWIG_exception_fail(SWIG_TypeError, "cannot get iterator to a list list");
-
-         int errorStatus = 0;
-         PyObject *item = nullptr;
-         while ((item = PyIter_Next(iterator)))
-         {
-             if (!PyTuple_Check(item))
-                 SWIG_exception_fail(SWIG_TypeError, "element of the list is expected to be a tuple");
-
-             auto parameter = GetNotNullInnerPointer<CNTK::Parameter>(PyTuple_GET_ITEM(item, 0),
-                 "cannot convert first element of the tupe to CNTK::Parameter" );
-
-             auto value = GetInnerPointer<CNTK::NDArrayViewPtr>(PyTuple_GET_ITEM(item, 1),
-                 "cannot convert second element of a tuple to CNTK::NDArrayViewPtr");
-
-             args_vector.push_back(std::make_pair(*parameter, *value));
-             Py_DECREF(item);
-        }
-
-        Py_DECREF(iterator);
-
-        if (PyErr_Occurred()) 
-            SWIG_exception_fail(SWIG_ValueError, "cannot convert list of tuples to std::vector<Parameter, NDArrayViewPtr>");
-
-        $1 = &args_vector;
-    }
-
-%typemap(argout, fragment="Utility functions")
-    std::vector<std::pair<CNTK::Parameter, CNTK::NDArrayViewPtr>>& gradientValues
-    {
-        if (!PyList_Check($input))
-            SWIG_exception(SWIG_TypeError, "list expected");
-
-        PyObject *iterator = PyObject_GetIter($input);
-
-        size_t index = 0;
-        int errorStatus = 0;
-        PyObject *item = nullptr;
-        while ((item = PyIter_Next(iterator)))
-        {
-            auto value = GetInnerPointer<CNTK::NDArrayViewPtr>(PyTuple_GET_ITEM(item, 1),
-                "cannot convert second element of a tuple to CNTK::NDArrayViewPtr");
-
-             auto newPointerToValue = (*$1)[index].second.get();
-             if(value->get() != newPointerToValue)
-             {
-                 auto v = new CNTK::NDArrayViewPtr((*$1)[index].second);
-                 PyObject *changedValue = SWIG_NewPointerObj(SWIG_as_voidptr(v), swig::type_info<CNTK::NDArrayViewPtr>(), SWIG_POINTER_OWN);
-                 PyTuple_SET_ITEM(item, 1, changedValue);
-             }
-
-             index++;
-             Py_DECREF(item);
-        }
-
-        Py_DECREF(iterator);
-
-        if (PyErr_Occurred())
-            SWIG_exception_fail(SWIG_ValueError, "cannot convert list of tuples to std::vector<Parameter, NDArrayViewPtr>");
-    }
-
 
 // extend constructor
 %extend CNTK::DictionaryValue {
@@ -1059,11 +932,17 @@ public:
 %shared_ptr(CNTK::NDMask)
 %shared_ptr(CNTK::BackPropState)
 %shared_ptr(CNTK::Learner)
-%shared_ptr(CNTK::CompositeLearner)
-%shared_ptr(CNTK::DistributedLearner)
 %shared_ptr(CNTK::MinibatchSource)
 %shared_ptr(CNTK::DistributedCommunicator)
 %shared_ptr(CNTK::QuantizedDistributedCommunicator)
+%shared_ptr(CNTK::DistributedLearner)
+
+%extend CNTK::Trainer {
+    Trainer(int, const CNTK::FunctionPtr& model, const CNTK::FunctionPtr& lossFunction, const CNTK::FunctionPtr& evaluationFunction, const std::vector<CNTK::DistributedLearnerPtr>& distributedLearners)
+    {
+        return new CNTK::Trainer(model, lossFunction, evaluationFunction, distributedLearners);
+    }
+}
 
 %include "CNTKLibraryInternals.h"
 %include "CNTKLibrary.h"
