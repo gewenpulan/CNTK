@@ -83,6 +83,31 @@
 %apply float INPUT[]  { float *dataBuffer }
 %apply double INPUT[]  { double *dataBuffer }
 
+%rename (GetOutput) CNTK::Function::Output;
+%rename (GetOutputs) CNTK::Function::Outputs;
+
+%typemap(cscode) CNTK::Function %{
+
+    public VariableVector Outputs
+    {
+        get { return GetOutputs(); }
+    }
+
+    public Variable Output
+    {
+        get { return GetOutput(); }
+    }
+%}
+
+%rename (GetShape) CNTK::Variable::Shape;
+
+%typemap(cscode) CNTK::Variable %{
+
+    public NDShape Shape
+    {
+        get { return GetShape(); }
+     }
+%}
 
 %typemap(cscode) CNTK::Value %{
 

@@ -88,7 +88,7 @@ namespace CNTK
             var outMap = new UnorderedMapVariableValuePtr();
             foreach (var p in outputs)
             {
-                var variable = rootFunction.Outputs().Where(v => string.Equals(v.Name(), p.Key)).FirstOrDefault();
+                var variable = rootFunction.Outputs.Where(v => string.Equals(v.Name(), p.Key)).FirstOrDefault();
                 if (variable == null)
                 {
                     throw new KeyNotFoundException("No output variable '" + p.Key + "' found.");
@@ -111,7 +111,7 @@ namespace CNTK
         public Value CreateValue<T>(string varName, List<List<T>> sequences, DeviceDescriptor computeDevice)
         {
             var variable = getVariableByName(varName);
-            var dim = variable.Shape().TotalSize();
+            var dim = variable.Shape.TotalSize();
 
             if (typeof(T).Equals(typeof(float)))
             {
@@ -125,7 +125,7 @@ namespace CNTK
                     var samples = new FloatVector(seq);
                     inputSeqVector.Add(samples);
                 }
-                var inputValue = Value.CreateDenseFloat(variable.Shape(), inputSeqVector, computeDevice);
+                var inputValue = Value.CreateDenseFloat(variable.Shape, inputSeqVector, computeDevice);
                 return inputValue;
             }
             else if (typeof(T).Equals(typeof(double)))
@@ -140,7 +140,7 @@ namespace CNTK
                     var samples = new DoubleVector(seq);
                     inputSeqVector.Add(samples);
                 }
-                var inputValue = Value.CreateDenseDouble(variable.Shape(), inputSeqVector, computeDevice);
+                var inputValue = Value.CreateDenseDouble(variable.Shape, inputSeqVector, computeDevice);
                 return inputValue;
             }
             else
@@ -193,11 +193,11 @@ namespace CNTK
             var outputNDArrayView = value.Data();
             var outputShape = outputNDArrayView.Shape();
 
-            var varRank = variable.Shape().Rank();
+            var varRank = variable.Shape.Rank();
             var valueRank = outputNDArrayView.Shape().Rank();
 
             Debug.Assert(varRank + 2 == valueRank);
-            var numOfElementsInSample = variable.Shape().TotalSize();
+            var numOfElementsInSample = variable.Shape.TotalSize();
             var numOfSamplesInSequence = outputShape.GetDimensionSize(varRank);
             var numOfSequences = outputShape.GetDimensionSize(varRank+1);
 
@@ -258,7 +258,7 @@ namespace CNTK
             var v = rootFunction.Arguments().Where(variable => string.Equals(variable.Name(), name)).FirstOrDefault();
             if (v == null)
             {
-                v = rootFunction.Outputs().Where(variable => string.Equals(variable.Name(), name)).FirstOrDefault();
+                v = rootFunction.Outputs.Where(variable => string.Equals(variable.Name(), name)).FirstOrDefault();
             }
 
             return v;
@@ -277,7 +277,7 @@ namespace CNTK
             }
             else if (nodeKind == VariableKind.Output)
             {
-                varList = rootFunction.Outputs();
+                varList = rootFunction.Outputs;
             }
             else 
             {
@@ -294,7 +294,7 @@ namespace CNTK
                 var dim = new List<ulong>();
                 // The Dimensions is IEnumerable<uint>
                 // Todo: fix the swig to output IEnumberable<ulong>
-                foreach (var d in arg.Shape().Dimensions())
+                foreach (var d in arg.Shape.Dimensions())
                 {
                     dim.Add(d);
                 }
@@ -315,7 +315,7 @@ namespace CNTK
             }
             else if (nodeKind == VariableKind.Output)
             {
-                varList = rootFunction.Outputs();
+                varList = rootFunction.Outputs;
             }
             else
             {
@@ -330,7 +330,7 @@ namespace CNTK
                     throw new Exception("duplicated name '" + arg.Name() + "'.");
                 }
 
-                retVal.Add(arg.Name(), arg.Shape().TotalSize());
+                retVal.Add(arg.Name(), arg.Shape.TotalSize());
             }
 
             return retVal;

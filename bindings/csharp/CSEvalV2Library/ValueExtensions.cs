@@ -24,7 +24,7 @@ namespace CNTK
                 throw new ArgumentException("The variable should have 2 dynamic axes.");
             }
 
-            var variableShape = variable.Shape();
+            var variableShape = variable.Shape;
             var valueShape = value.Shape();
             if (variableShape.Rank() != valueShape.Rank() - 2)
             {
