@@ -134,7 +134,7 @@ public:
 
     static void ScaleAndAdd(const ElemType alpha, const CPUSparseMatrix<ElemType>& lhs, CPUMatrix<ElemType>& c);
 
-    static void ScaleAndAccumulate(const ElemType alpha, CPUSparseMatrix<ElemType>& c, const CPUSparseMatrix<ElemType>& lhs);
+    static void ScaleAndAccumulate(const ElemType alpha, CPUSparseMatrix<ElemType>& c, const ElemType beta, const CPUSparseMatrix<ElemType>& lhs);
 
     static bool AreEqual(const CPUSparseMatrix<ElemType>& a, const CPUSparseMatrix<ElemType>& b, const ElemType threshold = 1e-8);
 

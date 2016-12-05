@@ -244,7 +244,7 @@ void CPUSparseMatrix<ElemType>::SetValue(const CPUSparseMatrix<ElemType>& v)
 {
     SetFormat(v.GetFormat());
 
-    RequireSizeAndAllocate(v.GetNumRows(), v.GetNumCols(), v.NzSize());
+    RequireSizeAndAllocate(v.GetNumRows(), v.GetNumCols(), v.NzCount() ); // TODO: rename to *Bytes/*Count instead of vague *Size if possible
     let nz = v.NzCount();
 
     auto matrixFormat = v.GetFormat();
@@ -253,16 +253,16 @@ void CPUSparseMatrix<ElemType>::SetValue(const CPUSparseMatrix<ElemType>& v)
 
     if (nz > 0)
     {
-        memcpy(NzValues(),    v.NzValues(),    v.NzSize() * sizeof(ElemType));
+        memcpy(NzValues(),    v.NzValues(),    v.NzSize());
 
         if ((matrixFormat == matrixFormatSparseCSC) || (matrixFormat == matrixFormatSparseCSR))
         {
-            memcpy(RowLocation(), v.RowLocation(), v.RowSize() * sizeof(CPUSPARSE_INDEX_TYPE));
-            memcpy(ColLocation(), v.ColLocation(), v.ColSize() * sizeof(CPUSPARSE_INDEX_TYPE));
+            memcpy(RowLocation(), v.RowLocation(), v.RowSize());
+            memcpy(ColLocation(), v.ColLocation(), v.ColSize());
         }
         else
         {
-            memcpy(GetBlockIds(), v.GetBlockIds(), v.GetBlockSize() * sizeof(size_t)); // TODO: change block id from size_t to CPUSPARSE_INDEX_TYPE
+            memcpy(GetBlockIds(), v.GetBlockIds(), v.GetBlockSize() * sizeof(size_t)); // TODO: change block id from size_t to CPUSPARSE_INDEX_TYPE, and rename BlockSize to BlockCount
             SetBlockSize(v.GetBlockSize());
         }
     }
@@ -1100,9 +1100,9 @@ void CPUSparseMatrix<ElemType>::ScaleAndAdd(const ElemType alpha, const CPUSpars
     }
 }
 
-// c = alpha * c + lhs
+// c = alpha * c + beta * lhs
 template <class ElemType>
-void CPUSparseMatrix<ElemType>::ScaleAndAccumulate(const ElemType alpha, CPUSparseMatrix<ElemType>& c, const CPUSparseMatrix<ElemType>& lhs)
+void CPUSparseMatrix<ElemType>::ScaleAndAccumulate(const ElemType alpha, CPUSparseMatrix<ElemType>& c, const ElemType beta, const CPUSparseMatrix<ElemType>& lhs)
 {
     if (lhs.IsEmpty() || c.IsEmpty())
     {
@@ -1160,7 +1160,9 @@ void CPUSparseMatrix<ElemType>::ScaleAndAccumulate(const ElemType alpha, CPUSpar
         }
     }
 
-    // c += lhs, needs to allocate additional memory
+    if (beta == 0) return; // ====>
+
+    // c += beta * lhs, needs to allocate additional memory
     size_t newBlockSize = cMap.size();
     if (newBlockSize > oldBlockSize)
     {
@@ -1191,12 +1193,22 @@ void CPUSparseMatrix<ElemType>::ScaleAndAccumulate(const ElemType alpha, CPUSpar
             {
                 for (size_t row = 0; row < c.GetNumRows(); ++row)
                 {
-                    p[row] += pLhs[row];
+                    p[row] += beta * pLhs[row];
                 }
             }
             else
             {
-                memcpy(p, pLhs, c.GetNumRows() * sizeof(ElemType));
+                if (beta == 1)
+                {
+                    memcpy(p, pLhs, c.GetNumRows() * sizeof(ElemType));
+                }
+                else
+                {
+                    for (size_t row = 0; row < c.GetNumRows(); ++row)
+                    {
+                        p[row] = beta * pLhs[row];
+                    }
+                }
                 c.GetBlockIds()[cStorageIndex] = blockId;
             }
         }
