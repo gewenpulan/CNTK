@@ -10,13 +10,32 @@ namespace CNTK
     {
         // The value represents a n-dimensional tensor with 2 dynamic axes: sequence and batch
         // It assumes that only the highest 2 axes are dynamic, and all the other axes are static. 
-        public static void CopyTo<T>(this Value value, List<List<T>> data)
+        public static void CopyTo<T>(this Value value, Variable variable, List<List<T>> data)
         {
-
             if ((value.GetDataType() == DataType.Float) && (!typeof(T).Equals(typeof(float))) || 
                 (value.GetDataType() == DataType.Double) && (!typeof(T).Equals(typeof(double))))
             {
                 throw new ArgumentException("The value type does not match the list type.");
+            }
+
+            // Todo: how to check whether the dynamic axes are the highest 2 axes in the shape.
+            if (variable.DynamicAxes().Count != 2)
+            {
+                throw new ArgumentException("The variable should have 2 dynamic axes.");
+            }
+
+            var variableShape = variable.Shape();
+            var valueShape = value.Shape();
+            if (variableShape.Rank() != valueShape.Rank() - 2)
+            {
+                throw new ArgumentException("The variable and value does not have same shape.");
+            }
+            for (uint i = 0; i < variableShape.Rank(); i++)
+            {
+                if (variableShape.GetDimensionSize(i) != valueShape.GetDimensionSize(i))
+                {
+                    throw new ArgumentException("The shape ranks of varaible and value does not match.");
+                }
             }
 
             // Todo: transform sparse to dense
@@ -29,9 +48,6 @@ namespace CNTK
             var outputNDArrayView = value.Data();
             var outputShape = outputNDArrayView.Shape();
             var outputShapeRank = outputShape.Rank();
-            var variableShape = outputShape.SubShape(0, outputShapeRank - 2);
-
-            Debug.Assert(outputShape.Rank() >= 3);
             var numOfElementsInSample = variableShape.TotalSize();
             var numOfSamplesInSequence = outputShape.GetDimensionSize(outputShapeRank - 2);
             var numOfSequences = outputShape.GetDimensionSize(outputShapeRank - 1);
@@ -72,13 +88,13 @@ namespace CNTK
         }
 
         // The value represents a n-dimensional tensor with 2 dynamic axes: sequence and batch
-        public static void CopyTo<T>(this Value value, List<List<long>> data)
+        public static void CopyTo<T>(this Value value, Variable variable, List<List<long>> data)
         {
             throw new NotImplementedException("Not implemented");
         }
 
         // The value represents a n-dimensional tensor with 2 dynamic axes: sequence and batch
-        public static void CopyTo<T>(List<List<T>> data, List<List<long>> indexes, List<List<long>> nnzCounts)
+        public static void CopyTo<T>(List<List<T>> data, Variable variable, List<List<long>> indexes, List<List<long>> nnzCounts)
         {
             throw new NotImplementedException("Not implemented");
         }

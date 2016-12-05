@@ -90,7 +90,7 @@ namespace CSEvalV2Example
             Value outputVal = outputMap[outputVar.Name()];
             // Get output result as dense output
             // void CopyTo(List<List<T>>
-            outputVal.CopyTo(outputData);
+            outputVal.CopyTo(outputVar, outputData);
 
             // Output results
             var numOfElementsInSample = outputVar.Shape().TotalSize();
