@@ -443,11 +443,9 @@ namespace CSEvalV2Example
             }
         }
 
- 
-
         static void Main(string[] args)
         {
-            Console.WriteLine("======== Evaluate model using C# ========")
+            Console.WriteLine("======== Evaluate model using C# ========");
             EvaluateWithConvenienceMethods();
             //Console.WriteLine("======== Evaluate V1 Model ========");
             // EvaluateV1ModelUsingNDView();
