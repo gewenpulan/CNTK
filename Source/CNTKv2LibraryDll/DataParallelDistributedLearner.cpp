@@ -143,6 +143,7 @@ namespace CNTK
 
         m_totalNumberOfSamplesSeen += info.numberOfSamples;
         totalNumberOfSampleSeen = m_totalNumberOfSamplesSeen;
+        m_gradientBuffer.clear();
 
         auto result = m_learner->Update(gradientValues, info.numberOfSamples);
         return result && !info.IsEmpty();
