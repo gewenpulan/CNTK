@@ -26,11 +26,11 @@ namespace CNTK
 
             var variableShape = variable.Shape;
             var valueShape = value.Shape();
-            if (variableShape.Rank() != valueShape.Rank() - 2)
+            if (variableShape.Rank != valueShape.Rank - 2)
             {
                 throw new ArgumentException("The variable and value does not have same shape.");
             }
-            for (uint i = 0; i < variableShape.Rank(); i++)
+            for (uint i = 0; i < variableShape.Rank; i++)
             {
                 if (variableShape.GetDimensionSize(i) != valueShape.GetDimensionSize(i))
                 {
@@ -47,8 +47,8 @@ namespace CNTK
 
             var outputNDArrayView = value.Data();
             var outputShape = outputNDArrayView.Shape();
-            var outputShapeRank = outputShape.Rank();
-            var numOfElementsInSample = variableShape.TotalSize();
+            var outputShapeRank = outputShape.Rank;
+            var numOfElementsInSample = variableShape.TotalSize;
             var numOfSamplesInSequence = outputShape.GetDimensionSize(outputShapeRank - 2);
             var numOfSequences = outputShape.GetDimensionSize(outputShapeRank - 1);
 
@@ -56,7 +56,7 @@ namespace CNTK
             // Todo: directly access the data in output buffer?
             // Todo: need to map DataBuffer() to C#
             NDArrayView cpuOutputNDArrayView;
-            uint numOfOutputData = outputNDArrayView.Shape().TotalSize();
+            uint numOfOutputData = outputNDArrayView.Shape().TotalSize;
             // Todo: consider mask.
             Debug.Assert(numOfElementsInSample * numOfSamplesInSequence * numOfSequences == numOfOutputData);
             T[] outputData = new T[numOfOutputData];

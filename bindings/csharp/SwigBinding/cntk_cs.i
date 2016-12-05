@@ -85,84 +85,146 @@
 
 %rename (GetOutput) CNTK::Function::Output;
 %rename (GetOutputs) CNTK::Function::Outputs;
+%rename (GetArguments) CNTK::Function::Arguments;
 
 %typemap(cscode) CNTK::Function %{
 
-    public VariableVector Outputs
+    public System.Collections.Generic.List<Variable> Outputs
     {
-        get { return GetOutputs(); }
+        get 
+        {
+            var vars = GetOutputs();
+            var ret = new System.Collections.Generic.List<Variable>(vars.Count);
+            foreach (var v in vars)
+            {
+                ret.Add(v);
+            }
+            return ret;
+        }
     }
 
     public Variable Output
     {
         get { return GetOutput(); }
     }
+
+    public System.Collections.Generic.List<Variable> Arguments
+    {
+        get 
+        {
+            var vars = GetArguments();
+            var ret = new System.Collections.Generic.List<Variable>(vars.Count);
+            foreach (var v in vars)
+            {
+                ret.Add(v);
+            }
+            return ret;
+        }
+    }
 %}
 
 %rename (GetShape) CNTK::Variable::Shape;
+%rename (GetName) CNTK::Variable::Name;
 
 %typemap(cscode) CNTK::Variable %{
 
     public NDShape Shape
     {
         get { return GetShape(); }
-     }
+    }
+
+    public string Name
+    {
+        get { return GetName(); }
+    }
+%}
+
+%rename (GetDimensions) CNTK::NDShape::Dimensions;
+%rename (GetRank) CNTK::NDShape::Rank;
+%rename (GetTotalSize) CNTK::NDShape::TotalSize;
+
+%typemap(cscode) CNTK::NDShape %{
+    public uint Rank
+    {
+        get { return GetRank(); }
+    }
+
+    public System.Collections.Generic.List<long> Dimensions
+    {
+        get 
+        { 
+            var ret = new System.Collections.Generic.List<long>((int)GetRank());
+            foreach (var dim in GetDimensions())
+            {
+                ret.Add(dim);
+            }
+            return ret;
+        }
+    }
+
+    public uint TotalSize
+    {
+        get { return GetTotalSize(); }
+    }
+
+    public uint this[int key]
+    {
+        get { return GetDimensionSize((uint)key); }
+    }
 %}
 
 %typemap(cscode) CNTK::Value %{
 
-public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<T>> sequences, DeviceDescriptor computeDevice)
-{
-    var dim = shape.TotalSize();
-
-    if (typeof(T).Equals(typeof(float)))
+    public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<T>> sequences, DeviceDescriptor computeDevice)
     {
-        var inputSeqVector = new FloatVectorVector();
-        foreach (var seq in sequences)
+        var dim = shape.TotalSize;
+
+        if (typeof(T).Equals(typeof(float)))
         {
-            if (seq.Count % dim != 0)
+            var inputSeqVector = new FloatVectorVector();
+            foreach (var seq in sequences)
             {
-                throw new System.ArgumentException("the number of data in sequences does not match the input dimension");
+                if (seq.Count % dim != 0)
+                {
+                    throw new System.ArgumentException("the number of data in sequences does not match the input dimension");
+                }
+                var samples = new FloatVector(seq);
+                inputSeqVector.Add(samples);
             }
-            var samples = new FloatVector(seq);
-            inputSeqVector.Add(samples);
+            return Value.CreateDenseFloat(shape, inputSeqVector, computeDevice);
         }
-        return Value.CreateDenseFloat(shape, inputSeqVector, computeDevice);
-    }
-    else if (typeof(T).Equals(typeof(double)))
-    {
-        var inputSeqVector = new DoubleVectorVector();
-        foreach (var seq in sequences)
+        else if (typeof(T).Equals(typeof(double)))
         {
-            if (seq.Count % dim != 0)
+            var inputSeqVector = new DoubleVectorVector();
+            foreach (var seq in sequences)
             {
-                throw new System.ArgumentException("the number of data in sequences does not match the input dimension");
+                if (seq.Count % dim != 0)
+                {
+                    throw new System.ArgumentException("the number of data in sequences does not match the input dimension");
+                }
+                var samples = new DoubleVector(seq);
+                inputSeqVector.Add(samples);
             }
-            var samples = new DoubleVector(seq);
-            inputSeqVector.Add(samples);
+            return Value.CreateDenseDouble(shape, inputSeqVector, computeDevice);
         }
-        return Value.CreateDenseDouble(shape, inputSeqVector, computeDevice);
+        else
+        {
+            throw new System.ArgumentException("The data type " + typeof(T).ToString() + " is not supported. Only float or double is supported by CNTK.");
+        }
     }
-    else
+
+    public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<long>> oneHotIndex, DeviceDescriptor computeDevice)
     {
-        throw new System.ArgumentException("The data type " + typeof(T).ToString() + " is not supported. Only float or double is supported by CNTK.");
+        throw new System.NotImplementedException("Not implemented");
     }
-}
 
-public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<long>> oneHotIndex, DeviceDescriptor computeDevice)
-{
-    throw new System.NotImplementedException("Not implemented");
-}
-
-// Create Value based on sparse input
-// Todo: could this be a extension to Value class??
-// Todo: use Variable instead of varName. VarName as extension method
-public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<T>> data, System.Collections.Generic.List<System.Collections.Generic.List<long>> indexes, System.Collections.Generic.List<System.Collections.Generic.List<long>> nnzCounts, DeviceDescriptor computeDevice)
-{
-    throw new System.NotImplementedException("Not implemented");
-}
-
-
+    // Create Value based on sparse input
+    // Todo: could this be a extension to Value class??
+    // Todo: use Variable instead of varName. VarName as extension method
+    public static Value Create<T>(NDShape shape, System.Collections.Generic.List<System.Collections.Generic.List<T>> data, System.Collections.Generic.List<System.Collections.Generic.List<long>> indexes, System.Collections.Generic.List<System.Collections.Generic.List<long>> nnzCounts, DeviceDescriptor computeDevice)
+    {
+        throw new System.NotImplementedException("Not implemented");
+    }
 %}
 
 
